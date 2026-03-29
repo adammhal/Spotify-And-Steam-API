@@ -39,6 +39,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+def format_track_payload(track):
+    album_images = track.get("album", {}).get("images", [])
+    album_image_url = album_images[0]["url"] if album_images else None
+
+    return {
+        "title": track.get("name"),
+        "artist": ", ".join(artist["name"] for artist in track.get("artists", [])),
+        "album": track.get("album", {}).get("name"),
+        "albumImageUrl": album_image_url,
+        "songUrl": track.get("external_urls", {}).get("spotify"),
+    }
+
 def get_access_token():
     auth_str = f"{CLIENT_ID}:{CLIENT_SECRET}"
     b64_auth_str = base64.b64encode(auth_str.encode()).decode()
@@ -63,13 +75,43 @@ def get_now_playing():
             recent_data = recent_response.json()
             if not recent_data.get("items"): return {"isPlaying": False, "hasData": False}
             last_track = recent_data["items"][0]["track"]
-            return {"isPlaying": False, "hasData": True, "title": last_track["name"], "artist": ", ".join(artist["name"] for artist in last_track["artists"]), "album": last_track["album"]["name"], "albumImageUrl": last_track["album"]["images"][0]["url"], "songUrl": last_track["external_urls"]["spotify"]}
+            return {"isPlaying": False, "hasData": True, **format_track_payload(last_track)}
         response.raise_for_status()
         data = response.json()
         if not data or not data.get("is_playing") or not data.get("item"): return {"isPlaying": False, "hasData": False}
-        return {"isPlaying": True, "hasData": True, "title": data["item"]["name"], "artist": ", ".join(artist["name"] for artist in data["item"]["artists"]), "album": data["item"]["album"]["name"], "albumImageUrl": data["item"]["album"]["images"][0]["url"], "songUrl": data["item"]["external_urls"]["spotify"]}
+        return {"isPlaying": True, "hasData": True, **format_track_payload(data["item"])}
     except requests.exceptions.RequestException as e: return {"error": f"Could not connect to Spotify API: {e}"}
     except Exception as e: return {"error": f"An unexpected error occurred: {e}"}
+
+
+@app.get("/api/recently-played")
+def get_recently_played():
+    """
+    Returns the single most recently played track, regardless of how long ago it was played.
+    """
+    try:
+        access_token = get_access_token()
+        headers = {'Authorization': f'Bearer {access_token}'}
+        params = {'limit': 1}
+        response = requests.get(RECENTLY_PLAYED_ENDPOINT, headers=headers, params=params)
+        response.raise_for_status()
+        data = response.json()
+
+        if not data.get("items"):
+            return {"hasData": False}
+
+        most_recent_item = data["items"][0]
+        track = most_recent_item.get("track", {})
+
+        return {
+            "hasData": True,
+            "playedAt": most_recent_item.get("played_at"),
+            **format_track_payload(track),
+        }
+    except requests.exceptions.RequestException as e:
+        return {"error": f"Could not connect to Spotify API: {e}"}
+    except Exception as e:
+        return {"error": f"An unexpected error occurred: {e}"}
 
 @app.get("/api/top-tracks")
 def get_top_tracks():

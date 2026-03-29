@@ -1,4 +1,5 @@
 .env
 get_token.py
 test_api.py
+test_recently_played.py
 __pycache__/main.cpython-313.pyc
